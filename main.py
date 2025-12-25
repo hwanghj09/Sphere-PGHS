@@ -3,7 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 import httpx
-from datetime import date, datetime
+from datetime import datetime
+import pytz
 import openai
 import os
 import hashlib
@@ -12,7 +13,6 @@ import json
 import shutil
 from typing import List, Optional
 from pydantic import BaseModel
-import pytz
 
 # .env 파일에서 환경 변수를 로드합니다.
 load_dotenv()
@@ -132,7 +132,10 @@ class AgentResponse(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, meal_description: str = Query(None)):
-    meal_date = meal_cache.get("meal_date") or date.today().strftime("%Y%m%d")
+    seoul_tz = pytz.timezone('Asia/Seoul')
+    meal_date = datetime.now(seoul_tz).strftime("%Y%m%d") 
+    
+    print(f"조회 날짜: {meal_date}")
     meal_info_list = meal_cache.get("meal_list", [])
     neis_error = meal_cache.get("neis_error")
 
