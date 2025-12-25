@@ -62,11 +62,11 @@ def save_meal_cache(data: dict):
         print(f"[MEAL CACHE] 캐시 파일 저장 실패: {e}")
 
 
-async def fetch_meals_from_neis(meal_date: str):
+async def fetch_meals_from_neis(target_date: str):
     url = (
         "https://open.neis.go.kr/hub/mealServiceDietInfo"
         f"?Type=json&pIndex=1&pSize=100"
-        f"&ATPT_OFCDC_SC_CODE=J10&SD_SCHUL_CODE=7531255&MLSV_YMD={meal_date}"
+        f"&ATPT_OFCDC_SC_CODE=J10&SD_SCHUL_CODE=7531255&MLSV_YMD={target_date}"
     )
 
     meal_info_list = []
@@ -75,23 +75,21 @@ async def fetch_meals_from_neis(meal_date: str):
     try:
         async with httpx.AsyncClient(timeout=10.0) as http_client:
             response = await http_client.get(url)
-            response.raise_for_status()
             data = response.json()
 
             if "mealServiceDietInfo" in data:
-                meal_info_list = [
-                    item["DDISH_NM"]
-                    for item in data["mealServiceDietInfo"][1]["row"]
-                ]
-    except httpx.ReadTimeout:
-        print("[NEIS] 급식 정보 요청 타임아웃 발생")
-        neis_error = "급식 정보를 불러오는 중 시간이 초과되었습니다."
-    except httpx.HTTPError as e:
-        print(f"[NEIS] HTTP 오류 발생: {e}")
-        neis_error = "급식 정보를 불러오는 중 오류가 발생했습니다."
+                # 보내주신 JSON 구조: data['mealServiceDietInfo'][1]['row'][0]['DDISH_NM']
+                raw_meal_str = data["mealServiceDietInfo"][1]["row"][0]["DDISH_NM"]
+                
+                # <br/> 태그를 기준으로 나누고 불필요한 공백 제거
+                # 예: "흑미밥 <br/>미소국" -> ["흑미밥", "미소국"]
+                meal_info_list = [item.strip() for item in raw_meal_str.split("<br/>") if item.strip()]
+                print(f"[SUCCESS] 메뉴 추출 성공: {meal_info_list}")
+            else:
+                neis_error = "조회된 급식 정보가 없습니다."
     except Exception as e:
-        print(f"[NEIS] 알 수 없는 오류: {e}")
-        neis_error = "급식 정보를 불러오는 중 알 수 없는 오류가 발생했습니다."
+        print(f"[ERROR] API 파싱 오류: {e}")
+        neis_error = "급식 정보를 가져오는 중 오류가 발생했습니다."
 
     return meal_info_list, neis_error
 
