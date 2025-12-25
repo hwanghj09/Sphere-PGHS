@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 import httpx
-from datetime import datetime
+from datetime import datetime, date
 import pytz
 import openai
 import os
