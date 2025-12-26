@@ -116,12 +116,11 @@ class AgentResponse(BaseModel):
     reply: str
     actions: List[AgentAction]
 
-# --- 루트 엔드포인트 ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, meal_description: str = Query(None)):
-    # 매 요청마다 오늘 날짜 확인 (날짜가 바뀌었을 경우 대응)
     current_date = datetime.now(seoul_tz).strftime("%Y%m%d")
     
+    # 캐시 날짜 확인 및 업데이트 로직
     if meal_cache.get("meal_date") != current_date:
         meal_list, neis_error = await fetch_meals_from_neis(current_date)
         meal_cache.update({"meal_date": current_date, "meal_list": meal_list, "neis_error": neis_error})
@@ -132,9 +131,14 @@ async def read_root(request: Request, meal_description: str = Query(None)):
 
     # 이미지 생성 로직
     image_url = None
-    if meal_description:
+    
+    # 설명이 없으면 오늘 전체 메뉴를 합쳐서 설명으로 사용 (자동 생성 모드)
+    combined_meal_text = ", ".join(meal_info_list) if meal_info_list else ""
+    target_description = meal_description if meal_description else combined_meal_text
+
+    if target_description and not neis_error:
         hasher = hashlib.sha256()
-        hasher.update(meal_description.encode("utf-8"))
+        hasher.update(target_description.encode("utf-8"))
         filename_base = hasher.hexdigest()[:10]
         filename = f"{current_date}_{filename_base}.png"
         filepath = os.path.join("meal_img", filename)
@@ -143,16 +147,23 @@ async def read_root(request: Request, meal_description: str = Query(None)):
             image_url = f"/static/{filename}"
         else:
             try:
+                # 프롬프트를 '하나의 식판'에 모든 메뉴를 담도록 수정
+                prompt_instruction = (
+                    "A realistic top-down view of a South Korean school lunch served on a single divided stainless steel cafeteria tray. "
+                    "The tray must contain all the following items placed in their respective compartments: "
+                    f"[{target_description}]. "
+                    "The rice should be in the largest compartment, soup in the circular compartment, and various side dishes in the smaller sections. "
+                    "High quality, cinematic lighting, appetizing food photography style."
+                )
+
                 response = client.images.generate(
                     model="dall-e-3",
-                    prompt=(
-                        "당신은 학교 급식 예시 메뉴를 그리는 에이전트이다. 스테인리스 급식판에 음식을 실사처럼 담아라. "
-                        f"메뉴 리스트: {meal_description}"
-                    ),
+                    prompt=prompt_instruction,
                     size="1024x1024",
                     n=1,
                 )
                 generated_image_url = response.data[0].url
+                
                 async with httpx.AsyncClient(timeout=20.0) as image_client:
                     img_res = await image_client.get(generated_image_url)
                     with open(filepath, "wb") as f:
@@ -168,7 +179,7 @@ async def read_root(request: Request, meal_description: str = Query(None)):
             "meal_date": current_date,
             "meal_list": meal_info_list,
             "image_url": image_url,
-            "meal_description": meal_description,
+            "meal_description": target_description,
             "neis_error": neis_error,
         },
     )
@@ -222,6 +233,7 @@ async def search_lost_items(request: Request, query: str = Query(None)):
     
     search_results = [item for item in lost_items if query.lower() in item['name'].lower() or query.lower() in item['description'].lower()] if query else lost_items
     return templates.TemplateResponse("lost_search.html", {"request": request, "lost_items": search_results, "query": query})
+
 @app.post("/api/agent", response_model=AgentResponse)
 async def ai_agent_endpoint(payload: AgentRequest):
     system_prompt = (
